@@ -29,7 +29,9 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/sysmacros.h>
+#include <sys/un.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <sched.h>
 #include <unistd.h>
 #include <ocispec/runtime_spec_schema_config_schema.h>
@@ -41,6 +43,8 @@
 #ifdef HAVE_LIBKRUN
 #  include <libkrun.h>
 #endif
+
+#define IPC_SOCK_PATH "/tmp/krun_nitro_example_ipc.sock"
 
 /* libkrun has a hard-limit of 16 vCPUs per microVM. */
 #define LIBKRUN_MAX_VCPUS 16
@@ -145,8 +149,30 @@ libkrun_configure_kernel (uint32_t ctx_id, void *handle, yajl_val *config_tree, 
   return 0;
 }
 
+void *listen_enclave_output(void *opaque)
+{
+    int ret, fd = (int) opaque, sock, len;
+    char buf[512];
+    struct sockaddr_un client_sockaddr;
+
+    sock = accept(fd, (struct sockaddr *) &client_sockaddr, &len);
+    if (sock < 1)
+        return (void *) -1;
+
+    for (;;) {
+        ret = read(sock, &buf, 512);
+        if (ret <= 0)
+            break;
+        else if (ret < 512) {
+            buf[ret] = '\0';
+        }
+
+        fprintf(stderr, "%s", buf);
+    }
+}
+
 static int
-libkrun_configure_nitro (uint32_t ctx_id, void *handle, yajl_val *config_tree, libcrun_error_t *err)
+libkrun_configure_nitro (uint32_t ctx_id, void *handle, yajl_val *config_tree, libcrun_error_t *err, pthread_t *thread)
 {
   int32_t (*krun_nitro_set_image) (uint32_t ctx_id, const char *image_path, uint32_t image_type);
   int32_t (*krun_add_vsock_port) (uint32_t ctx_id, uint32_t port, const char *c_filepath);
@@ -213,6 +239,8 @@ libkrun_configure_nitro (uint32_t ctx_id, void *handle, yajl_val *config_tree, l
       close (sock_fd);
       return crun_make_error (err, -ret, "could not listen on krun nitro socket");
     }
+
+  ret = pthread_create(thread, NULL, listen_enclave_output, (void *) sock_fd);
 
   return 0;
 }
@@ -374,6 +402,7 @@ libkrun_exec (void *cookie, libcrun_container_t *container, const char *pathname
   libcrun_error_t err;
   bool configured = false;
   yajl_val config_tree = NULL;
+  pthread_t thread;
 
   ret = libkrun_read_vm_config (&config_tree, &err);
   if (UNLIKELY (ret < 0))
@@ -466,6 +495,9 @@ libkrun_exec (void *cookie, libcrun_container_t *container, const char *pathname
   yajl_tree_free (config_tree);
 
   ret = krun_start_enter (ctx_id);
+
+  ret = pthread_join(thread, NULL);
+
   return -ret;
 }
 
