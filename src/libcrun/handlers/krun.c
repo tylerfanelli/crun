@@ -78,6 +78,7 @@ struct krun_config
   int32_t ctx_id;
   int32_t ctx_id_sev;
   int32_t ctx_id_nitro;
+  bool has_kvm;
 };
 
 /* libkrun handler.  */
@@ -412,6 +413,10 @@ libkrun_exec (void *cookie, libcrun_container_t *container, const char *pathname
   if (UNLIKELY (ret < 0))
     error (EXIT_FAILURE, -ret, "unable to configure libkrun flavor");
 
+  // /dev/kvm is required for all non-nitro workloads.
+  if (!kconf->nitro && !kconf->has_kvm)
+    error (EXIT_FAILURE, -ret, "`/dev/kvm` unavailable");
+
   handle = kconf->handle;
   ctx_id = kconf->ctx_id;
 
@@ -713,8 +718,9 @@ libkrun_modify_oci_configuration (void *cookie arg_unused, libcrun_context_t *co
                                   libcrun_error_t *err)
 {
   const size_t device_size = sizeof (runtime_spec_schema_defs_linux_device_cgroup);
+  struct krun_config *kconf = (struct krun_config *) cookie;
   struct stat st_kvm, st_sev;
-  bool has_sev = true;
+  bool has_kvm = true, has_sev = true;
   size_t len;
   int ret;
 
@@ -726,7 +732,11 @@ libkrun_modify_oci_configuration (void *cookie arg_unused, libcrun_context_t *co
 
   ret = stat ("/dev/kvm", &st_kvm);
   if (UNLIKELY (ret < 0))
-    return crun_make_error (err, errno, "stat `/dev/kvm`");
+    {
+      if (errno != ENOENT)
+        return crun_make_error (err, errno, "stat `/dev/kvm`");
+      has_kvm = false;
+    }
 
   ret = stat ("/dev/sev", &st_sev);
   if (UNLIKELY (ret < 0))
@@ -736,15 +746,20 @@ libkrun_modify_oci_configuration (void *cookie arg_unused, libcrun_context_t *co
       has_sev = false;
     }
 
-  len = def->linux->resources->devices_len;
-  def->linux->resources->devices = xrealloc (def->linux->resources->devices,
-                                             device_size * (len + 2 + (has_sev ? 1 : 0)));
+  if (has_kvm)
+    {
+      len = def->linux->resources->devices_len;
+      def->linux->resources->devices = xrealloc (def->linux->resources->devices,
+                                                 device_size * (len + 2 + (has_sev ? 1 : 0)));
 
-  def->linux->resources->devices[len] = make_oci_spec_dev ("a", st_kvm.st_rdev, true, "rwm");
-  if (has_sev)
-    def->linux->resources->devices[len + 1] = make_oci_spec_dev ("a", st_sev.st_rdev, true, "rwm");
+      def->linux->resources->devices[len] = make_oci_spec_dev ("a", st_kvm.st_rdev, true, "rwm");
+      if (has_sev)
+        def->linux->resources->devices[len + 1] = make_oci_spec_dev ("a", st_sev.st_rdev, true, "rwm");
 
-  def->linux->resources->devices_len += has_sev ? 2 : 1;
+      def->linux->resources->devices_len += has_sev ? 2 : 1;
+    }
+
+  kconf->has_kvm = has_kvm;
 
   return 0;
 }
