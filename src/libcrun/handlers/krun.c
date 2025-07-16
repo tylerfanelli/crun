@@ -32,6 +32,15 @@
 #include <sched.h>
 #include <ocispec/runtime_spec_schema_config_schema.h>
 
+#include <pthread.h>
+#include <sys/time.h>
+#include <sys/un.h>
+#include <sys/socket.h>
+#include <linux/vm_sockets.h>
+
+#define VMADDR_CID_HYPERVISOR 0
+#define CID_TO_CONSOLE_PORT_OFFSET 10000
+
 #ifdef HAVE_DLOPEN
 #  include <dlfcn.h>
 #endif
@@ -93,6 +102,52 @@ libkrun_create_context (void *handle, libcrun_error_t *err)
     return crun_make_error (err, -ctx_id, "could not create krun context");
 
   return ctx_id;
+}
+
+void *listen_enclave_output(void *opaque)
+{
+    socklen_t addr_sz = sizeof(struct sockaddr_vm);
+    struct sockaddr_vm addr;
+    int ret, sock_fd, cid;
+    struct timeval timeval;
+    char buf[256];
+
+    cid = (int) opaque;
+
+    sock_fd = socket(AF_VSOCK, SOCK_STREAM, 0);
+    if (sock_fd < 0)
+        return (void *) -1;
+
+    bzero((char *) &addr, sizeof(struct sockaddr_vm));
+    addr.svm_family = AF_VSOCK;
+    addr.svm_cid = VMADDR_CID_HYPERVISOR;
+    addr.svm_port = cid + CID_TO_CONSOLE_PORT_OFFSET;
+
+    // Set vsock timeout limit to 5 seconds.
+    memset(&timeval, 0, sizeof(struct timeval));
+    timeval.tv_sec = 5;
+
+    ret = setsockopt(sock_fd, AF_VSOCK, SO_VM_SOCKETS_CONNECT_TIMEOUT,
+                        (void *) &timeval, sizeof(struct timeval));
+    if (ret < 0) {
+        close(sock_fd);
+        return (void *) -1;
+    }
+
+    ret = connect(sock_fd, (struct sockaddr *) &addr, addr_sz);
+    if (ret < 0) {
+        close(sock_fd);
+        return (void *) -1;
+    }
+
+    bzero(buf, 256);
+    for (;;) {
+        ret = read(sock_fd, &buf, 256);
+        if (ret <= 0)
+            break;
+
+        printf("%s", buf);
+    }
 }
 
 static int
@@ -338,6 +393,8 @@ libkrun_exec (void *cookie, libcrun_container_t *container, const char *pathname
   libcrun_error_t err;
   bool configured = false;
   yajl_val config_tree = NULL;
+  pthread_t thread;
+  int cid;
 
   ret = libkrun_read_vm_config (&config_tree, &err);
   if (UNLIKELY (ret < 0))
@@ -433,8 +490,21 @@ libkrun_exec (void *cookie, libcrun_container_t *container, const char *pathname
 
   yajl_tree_free (config_tree);
 
-  ret = krun_start_enter (ctx_id);
-  return -ret;
+  cid = krun_start_enter (ctx_id);
+
+  ret = pthread_create(&thread, NULL, listen_enclave_output, (void *) cid);
+  if (ret < 0) {
+      perror("unable to create new listener thread");
+      exit(1);
+  }
+
+  ret = pthread_join(thread, NULL);
+  if (ret < 0) {
+      perror("unable to join listener thread");
+      exit(1);
+  }
+
+  return 0;
 }
 
 /* libkrun_create_kvm_device: explicitly adds kvm device.  */
