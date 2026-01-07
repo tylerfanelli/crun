@@ -1670,6 +1670,7 @@ container_init (void *args, char *notify_socket, int sync_socket, libcrun_error_
       if (entrypoint_args->custom_handler->vtable->close_fds)
         {
           ret = entrypoint_args->custom_handler->vtable->close_fds (entrypoint_args->custom_handler->cookie,
+                                                                    entrypoint_args->container,
                                                                     entrypoint_args->context->preserve_fds);
         }
       else
