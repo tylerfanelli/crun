@@ -927,7 +927,7 @@ libkrun_modify_oci_configuration (void *cookie arg_unused, libcrun_context_t *co
 }
 
 static int
-libkrun_close_fds (void *cookie, int preserve_fds)
+libkrun_close_fds (void *cookie, libcrun_container_t *container, int preserve_fds)
 {
   struct krun_config *kconf = (struct krun_config *) cookie;
   int first_fd_to_close = preserve_fds + 3;
@@ -959,7 +959,7 @@ libkrun_close_fds (void *cookie, int preserve_fds)
       first_fd_to_close = high_passt_fd + 1;
     }
 
-  return mark_or_close_fds_ge_than (first_fd_to_close, true, NULL);
+  return mark_or_close_fds_ge_than (container, first_fd_to_close, true, NULL);
 }
 
 struct custom_handler_s handler_libkrun = {
