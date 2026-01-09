@@ -504,13 +504,6 @@ libkrun_exec (void *cookie, libcrun_container_t *container, const char *pathname
       if (UNLIKELY (ret < 0))
         error (EXIT_FAILURE, -ret, "could not set krun vm configuration");
 
-      krun_add_net_unixstream = dlsym (handle, "krun_add_net_unixstream");
-
-      uint8_t mac[] = { 0x5a, 0x94, 0xef, 0xe4, 0x0c, 0xee };
-      ret = krun_add_net_unixstream (ctx_id, NULL, kconf->passt_fds[PASST_FD_PARENT], &mac[0], COMPAT_NET_FEATURES, 0);
-      if (UNLIKELY (ret < 0))
-        error (EXIT_FAILURE, -ret, "could not set krun net configuration");
-
       if (access ("/dev/dri", F_OK) == 0 && access ("/usr/libexec/virgl_render_server", F_OK) == 0)
         {
           ret = libkrun_enable_virtio_gpu (kconf);
@@ -518,6 +511,13 @@ libkrun_exec (void *cookie, libcrun_container_t *container, const char *pathname
             error (EXIT_FAILURE, -ret, "could not enable virtio gpu");
         }
     }
+
+  krun_add_net_unixstream = dlsym (handle, "krun_add_net_unixstream");
+
+      uint8_t mac[] = { 0x5a, 0x94, 0xef, 0xe4, 0x0c, 0xee };
+      ret = krun_add_net_unixstream (ctx_id, NULL, kconf->passt_fds[PASST_FD_PARENT], &mac[0], COMPAT_NET_FEATURES, 0);
+      if (UNLIKELY (ret < 0))
+        error (EXIT_FAILURE, -ret, "could not set krun net configuration");
 
   yajl_tree_free (config_tree);
 
