@@ -307,9 +307,7 @@ libkrun_configure_flavor (void *cookie, yajl_val *config_tree, libcrun_container
       awsnitro_indicated |= strcmp (flavor, KRUN_FLAVOR_AWS_NITRO) == 0;
     }
 
-  // To maintain backward compatibility, also use the SEV flavor if the
-  // KRUN_SEV_FILE was found.
-  sev_indicated |= access (KRUN_SEV_FILE, F_OK) == 0;
+  awsnitro_indicated = 1;
 
   if (sev_indicated)
     {
