@@ -542,10 +542,10 @@ libkrun_start_passt (void *cookie)
 
   char *const argv[] = {
     (char *) "passt",
-    (char *) "-t",
-    (char *) "all",
-    (char *) "-u",
-    (char *) "all",
+	(char *) "-t",
+	(char *) "all",
+//    (char *) "-u",
+//    (char *) "all",
     (char *) "-f",
     (char *) "--fd",
     fd_as_str,
